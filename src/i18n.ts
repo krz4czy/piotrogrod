@@ -79,6 +79,10 @@ const pl: Record<string, string> = {
   'settings.pl': 'Polski',
   'settings.full': 'Pełny ekran',
   'settings.back': 'Wróć',
+  'settings.tutorial': 'Powtórz samouczek',
+  'settings.tutorialNext': 'Samouczek włączy się przy następnej grze.',
+  'tutor.skip': 'Pomiń',
+  'tutor.progress': '{n}/{total}',
 
   'credits.title': 'Autorzy',
   'credits.body':

@@ -13,6 +13,8 @@ import {
   SKILLS,
   itemName,
   questDef,
+  tileCenter,
+  MAPS,
 } from './content.ts';
 import { t } from './i18n.ts';
 import {
@@ -41,6 +43,7 @@ import { movePlayer } from './logic.ts';
 import { Net, type NetMsg } from './net.ts';
 import { bindMarker, WorldView } from './render.ts';
 import { joyRadius, loadSettings, saveSettings, type Settings } from './settings.ts';
+import { clearTutorial, Tutorial, tutorialDone } from './tutorial.ts';
 import {
   clearSession,
   exportSave,
@@ -102,6 +105,7 @@ function wait(ms: number): Promise<void> {
 class App {
   readonly settings: Settings;
   readonly audio = new AudioBus();
+  readonly tutor: Tutorial;
   readonly view: WorldView;
   readonly ui: GameUI;
   readonly preview: GameState;
@@ -162,6 +166,18 @@ class App {
     };
     this.ui.onSetting = (key, value) => this.onSetting(key, value);
     this.ui.onFile = (file) => void this.onFile(file);
+    this.tutor = new Tutorial({
+      act: (id, meta) => this.doAction({ id, meta }),
+      sfx: (name) => this.audio.play(name),
+      close: () => {
+        this.sheetKind = '';
+        this.dialog = null;
+        this.ui.closeSheet();
+      },
+      show: (model) => this.ui.setTutor(model),
+      place: (ring, bubble) => this.ui.placeTutor(ring, bubble),
+    });
+    this.exposeTest();
     this.bindInput();
     this.refreshMenu();
     this.prev = performance.now();
@@ -222,6 +238,7 @@ class App {
     if (this.phase === 'play' && this.state) {
       this.paintHud(now);
       this.paintBanner(now);
+      this.tutor.update(this.state, this.role, this.sheetKind, this.settings.joystickSide);
       if (this.state.rev !== this.seenRev) {
         this.seenRev = this.state.rev;
         if (this.sheetKind === 'dialog' || this.sheetKind === 'inv' || this.sheetKind === 'shop' || this.sheetKind === 'quests' || this.sheetKind === 'char') {
@@ -413,7 +430,20 @@ class App {
       return;
     }
     if (name === 'copy') {
+      this.tutor.pokeCoins();
       void this.copyCode();
+      return;
+    }
+    if (name === 'tutor-skip') {
+      this.tutor.skip();
+      return;
+    }
+    if (name === 'tut-hp') {
+      this.tutor.pokeHp();
+      return;
+    }
+    if (name === 'tutorial') {
+      this.replayTutorial();
       return;
     }
     if (name === 'enter') {
@@ -953,6 +983,52 @@ class App {
     else this.ui.toast(t('toast.import_bad'));
   }
 
+  private replayTutorial(): void {
+    if (this.phase === 'play' && this.state) {
+      clearTutorial(this.role);
+      this.sheetKind = '';
+      this.ui.closeSheet();
+      this.tutor.begin(this.role, this.state);
+      return;
+    }
+    clearTutorial();
+    this.ui.toast(t('settings.tutorialNext'));
+  }
+
+  private exposeTest(): void {
+    if (!location.search.includes('e2e=1')) return;
+    const bridge = {
+      role: () => this.role,
+      step: () => this.tutor.currentId(),
+      say: () => document.querySelector('#tutor .say')?.textContent ?? '',
+      place: (c: number, r: number, map?: MapId) => {
+        if (!this.state) return;
+        const id = map ?? this.state.characters[this.role].map;
+        const p = tileCenter(MAPS[id], c, r);
+        const ch = this.state.characters[this.role];
+        ch.map = id;
+        ch.x = p.x;
+        ch.z = p.z;
+      },
+      face: (rot: number) => {
+        if (this.state) this.state.characters[this.role].rot = rot;
+      },
+      plants: () => this.state?.plants ?? [],
+      mobs: () => this.state?.mobs ?? [],
+      flags: () => ({ ...(this.state?.flags ?? {}) }),
+      level: () => this.state?.characters[this.role].level ?? 0,
+      map: () => this.state?.characters[this.role].map ?? '',
+      standAt: (x: number, z: number, rot: number) => {
+        if (!this.state) return;
+        const ch = this.state.characters[this.role];
+        ch.x = x;
+        ch.z = z;
+        ch.rot = rot;
+      },
+    };
+    (window as unknown as { __garden?: typeof bridge }).__garden = bridge;
+  }
+
   private enterPlay(): void {
     if (!this.state) return;
     this.phase = 'play';
@@ -961,6 +1037,8 @@ class App {
     this.ui.showPlay();
     this.audio.unlock();
     this.paintHud(Date.now());
+    if (!tutorialDone(this.role)) this.tutor.begin(this.role, this.state);
+    else this.tutor.stop(false);
   }
 
   private backMenu(dropSession: boolean): void {
@@ -973,6 +1051,7 @@ class App {
     this.booting = false;
     this.dialog = null;
     this.sheetKind = '';
+    this.tutor.stop(false);
     this.link = 'wait';
     if (dropSession) clearSession();
     this.refreshMenu();
@@ -1117,7 +1196,7 @@ class App {
         ${id ? `<button class="btn tiny alt" type="button" data-go="unequip" data-slot="${slot}">${esc(t('inv.unequip'))}</button>` : ''}</div>`;
     }).join('');
     const items = ch.inv.length
-      ? ch.inv.map((st, i) => `<button class="btn tiny ${i === this.invIdx ? '' : 'alt'}" type="button" data-go="pick" data-idx="${i}">${esc(itemName(st.id, st.meta))} ×${st.n}</button>`).join('')
+      ? ch.inv.map((st, i) => `<button class="btn tiny ${i === this.invIdx ? '' : 'alt'}" type="button" data-go="pick" data-idx="${i}" data-item="${esc(st.id)}">${esc(itemName(st.id, st.meta))} ×${st.n}</button>`).join('')
       : `<p class="hint">${esc(t('inv.empty'))}</p>`;
     const sel = ch.inv[this.invIdx];
     let detail = `<p class="hint">${esc(t('inv.desc'))}</p>`;

@@ -21,6 +21,23 @@ import {
   worldToTile,
 } from './content.ts';
 import { t } from './i18n.ts';
+
+const TUT = {
+  dig: 'tut_dig',
+  sow: 'tut_sow',
+  prune: 'tut_prune',
+  pest: 'tut_pest',
+  fill: 'tut_fill',
+  water: 'tut_water',
+  fert: 'tut_fert',
+  heal: 'tut_heal',
+  cross: 'tut_cross',
+  harvest: 'tut_harvest',
+  quest: 'tut_quest',
+  level: 'tut_level',
+  coop: 'tut_coop',
+  travel: 'tut_travel_',
+} as const;
 import type {
   ActionMsg,
   ActionView,
@@ -190,6 +207,89 @@ function say(s: GameState, role: Role | 'all', key: string, vars?: Record<string
 
 function sfxOnly(s: GameState, role: Role | 'all', name: string): void {
   pushNotice(s, role, '', name);
+}
+
+function noteTut(s: GameState, key: string): void {
+  s.flags[key] = (s.flags[key] ?? 0) + 1;
+}
+
+function tutBed(s: GameState, pred: (c: number, r: number) => boolean): { c: number; r: number } | null {
+  const rows = MAPS.ogrod.rows;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      if (rows[r][c] !== 'b') continue;
+      if (s.plants.some((p) => p.c === c && p.r === r)) continue;
+      if (!pred(c, r)) continue;
+      return { c, r };
+    }
+  }
+  return null;
+}
+
+function tutPlant(s: GameState, c: number, r: number, species: string, patch: Partial<Plant>): void {
+  if (s.plants.some((p) => p.c === c && p.r === r)) return;
+  s.soil[soilKey(c, r)] = { tilled: true, wetUntil: 0 };
+  s.plants.push({
+    id: uid('p'), c, r, species, stage: 'sprout', plantedBy: 'ogrodnik', hybrid: false,
+    needsWater: false, needsPrune: false, needsHeal: false, fertilized: false,
+    quality: 1, since: Date.now(), readyAt: null, staked: false, covered: false,
+    ...patch,
+  });
+}
+
+function prepTutorial(s: GameState, role: Role, step: string, now: number): void {
+  if (step === 'prune' && !s.plants.some((p) => p.needsPrune)) {
+    const bed = tutBed(s, () => true);
+    if (bed) tutPlant(s, bed.c, bed.r, 'salata', { needsPrune: true, stage: 'sprout' });
+  }
+  if (step === 'pest') {
+    const ch = s.characters[role];
+    const near = s.mobs.some((m) => m.map === ch.map && !m.deadAt && MOBS[m.kind]?.pest && hypot(ch.x, ch.z, m.x, m.z) < 2.4);
+    if (!near) {
+      const mob = makeMob('slimak', ch.map, ch.x + Math.sin(ch.rot) * 0.95, ch.z + Math.cos(ch.rot) * 0.95);
+      s.mobs.push(mob);
+    }
+  }
+  if (step === 'fill') s.characters.zielarka.water = 0;
+  if (step === 'water' && !s.plants.some((p) => p.needsWater)) {
+    const bed = tutBed(s, () => true);
+    if (bed) tutPlant(s, bed.c, bed.r, 'marchew', { needsWater: true, stage: 'seed' });
+  }
+  if (step === 'fert') {
+    if (countOne(s.characters.zielarka, 'kompost') < 1) addItem(s.characters.zielarka, 'kompost', 1);
+    const live = s.plants.find((p) => p.stage !== 'mature' && !p.fertilized);
+    if (!live) {
+      const bed = tutBed(s, () => true);
+      if (bed) tutPlant(s, bed.c, bed.r, 'salata', { stage: 'growing', needsWater: false });
+    }
+  }
+  if (step === 'heal') {
+    const partner = s.characters[otherRole(role)];
+    const max = computeStats(s, otherRole(role)).maxHp;
+    if (partner.hp > max - 8) partner.hp = Math.max(12, max - 28);
+    if (countOne(s.characters.zielarka, 'bandaz') < 1) addItem(s.characters.zielarka, 'bandaz', 1);
+  }
+  if (step === 'cross' && !s.plants.some((p) => p.species === 'stokrotka' && p.stage === 'mature' && s.plants.some((q) => q !== p && q.species === 'stokrotka' && q.stage === 'mature' && Math.hypot(p.c - q.c, p.r - q.r) <= 1.5))) {
+    const a = tutBed(s, (c, r) => !s.plants.some((p) => p.c === c + 1 && p.r === r) && MAPS.ogrod.rows[r]?.[c + 1] === 'b');
+    if (a) {
+      tutPlant(s, a.c, a.r, 'stokrotka', { stage: 'mature', needsWater: false });
+      tutPlant(s, a.c + 1, a.r, 'stokrotka', { stage: 'mature', needsWater: false });
+    }
+  }
+  if (step === 'harvest') {
+    if (!s.plants.some((p) => p.stage === 'mature' && getSpecies(p.species).kind !== 'kwiat')) {
+      const bed = tutBed(s, () => true);
+      if (bed) tutPlant(s, bed.c, bed.r, 'marchew', { stage: 'mature', needsWater: false });
+    }
+    if (!s.nodes.some((n) => n.key === 'tut-herb' && n.left > 0)) {
+      s.nodes.push({ key: 'tut-herb', map: 'ogrod', c: 1, r: 10, kind: 'herb', left: 2, respawn: 0 });
+    }
+  }
+  if (step === 'skills') {
+    const ch = s.characters[role];
+    if (ch.level < 2) grantXp(s, role, Math.max(1, xpNeed(ch.level) - ch.xp), now);
+    else noteTut(s, TUT.level);
+  }
 }
 
 function pushNotice(s: GameState, role: Role | 'all', msg: string, sfx?: string): void {
@@ -588,6 +688,7 @@ function grantXp(s: GameState, role: Role, amount: number, _now: number): void {
     ch.xp -= xpNeed(ch.level);
     ch.level += 1;
     ch.skillPoints += 1;
+    noteTut(s, TUT.level);
     say(s, 'all', 'toast.level', { name: t('role.' + role), n: ch.level }, 'level');
     fx(s, ch.map, ch.x, ch.z, 'level', t('hud.lvl', { n: ch.level }), '#ffd23a', 1200);
   }
@@ -686,7 +787,7 @@ export function applyAction(s: GameState, role: Role, a: ActionMsg, now: number)
     bump(s);
     return;
   }
-  if (a.id !== 'emote' && a.id !== 'pos') {
+  if (a.id !== 'emote' && a.id !== 'pos' && a.id !== 'tut_prep' && a.id !== 'tut_flag') {
     if ((ch.cd.gate ?? 0) > now) return;
     ch.cd.gate = now + 130;
   }
@@ -729,6 +830,8 @@ export function applyAction(s: GameState, role: Role, a: ActionMsg, now: number)
     case 'travel': actTravel(s, role, a.map, a.meta === 'call', now); break;
     case 'accept_invite': actAcceptInvite(s, role, now); break;
     case 'decline_invite': s.invite = null; break;
+    case 'tut_prep': prepTutorial(s, role, a.meta ?? '', now); break;
+    case 'tut_flag': if (a.meta?.startsWith('tut_')) noteTut(s, a.meta); break;
     default: break;
   }
   bump(s);
@@ -752,6 +855,7 @@ function actTill(s: GameState, role: Role, ctx: Ctx, now: number): void {
   cell.tilled = true;
   s.soil[key] = cell;
   onEvent(s, { type: 'till', n: 1 });
+  noteTut(s, TUT.dig);
   grantXp(s, role, 2, now);
   say(s, role, gkey(role, 'toast.till'), undefined, 'dig');
   s.characters[role].cd.swing = now + 280;
@@ -782,6 +886,7 @@ function actSow(s: GameState, role: Role, ctx: Ctx, a: ActionMsg, now: number): 
   };
   s.plants.push(plant);
   onEvent(s, { type: 'plant', n: 1 });
+  noteTut(s, TUT.sow);
   grantXp(s, role, 3, now);
   say(s, role, gkey(role, 'toast.sow'), { name: sp.name }, 'sow');
   s.characters[role].cd.swing = now + 280;
@@ -822,6 +927,7 @@ function actWater(s: GameState, role: Role, ctx: Ctx, now: number): void {
   if (p.needsPrune) say(s, role, 'toast.water_need_prune', undefined, 'water');
   else if (p.hybrid && p.stage === 'growing' && !p.fertilized) say(s, role, 'toast.hybrid_need_fert', undefined, 'water');
   else say(s, role, 'toast.water_f', undefined, 'water');
+  noteTut(s, TUT.water);
   const pos = tileCenter(MAPS.ogrod, p.c, p.r);
   fx(s, 'ogrod', pos.x, pos.z, 'water');
   ch.cd.swing = now + 280;
@@ -838,6 +944,7 @@ function actRefill(s: GameState, role: Role, ctx: Ctx, _now: number): void {
     return;
   }
   s.characters[role].water = max;
+  noteTut(s, TUT.fill);
   say(s, role, 'toast.refill_f', undefined, 'water');
 }
 
@@ -851,6 +958,7 @@ function actPrune(s: GameState, role: Role, ctx: Ctx, now: number): void {
   if (!addItem(s.characters[role], 'kompost', 1)) say(s, role, 'toast.full_inv');
   resume(s, p, now);
   grantXp(s, role, 3, now);
+  noteTut(s, TUT.prune);
   say(s, role, 'toast.prune_m', undefined, 'prune');
   s.characters[role].cd.swing = now + 280;
 }
@@ -867,6 +975,7 @@ function actFert(s: GameState, role: Role, ctx: Ctx, now: number): void {
   }
   removeId(s.characters[role], 'kompost', 1);
   p.fertilized = true;
+  noteTut(s, TUT.fert);
   p.quality = 2;
   if (p.readyAt && p.readyAt > now) p.readyAt = now + (p.readyAt - now) * 0.7;
   resume(s, p, now);
@@ -904,6 +1013,7 @@ function actGather(s: GameState, role: Role, ctx: Ctx, now: number): void {
     addItem(s.characters[role], cropId(p.species), 1, meta);
     s.plants = s.plants.filter((x) => x.id !== p.id);
     onEvent(s, { type: 'harvest', n: 1, hybrid: sp.hybrid, greenhouse: meta?.includes('gh') ?? false });
+    noteTut(s, TUT.harvest);
     grantXp(s, role, 6, now);
     say(s, role, 'toast.harvest_m', { name: itemName(cropId(p.species), meta) }, 'harvest');
     return;
@@ -921,6 +1031,7 @@ function actGather(s: GameState, role: Role, ctx: Ctx, now: number): void {
   node.left -= 1;
   if (node.left <= 0) node.respawn = now + 40000;
   addItem(s.characters[role], id, 1);
+  noteTut(s, TUT.harvest);
   grantXp(s, role, 4, now);
   say(s, role, 'toast.gather_f', { name: itemName(id) }, 'pickup');
 }
@@ -952,6 +1063,7 @@ function actCross(s: GameState, role: Role, now: number): void {
     addItem(s.characters[role], seedId(id), 1);
   }
   onEvent(s, { type: 'cross', n: 1 });
+  noteTut(s, TUT.cross);
   grantXp(s, role, 10, now);
   say(s, role, 'toast.cross_f', { name: sp.name }, 'cross');
 }
@@ -992,6 +1104,7 @@ function actChase(s: GameState, role: Role, now: number): void {
     grantXp(s, role, MOBS[m.kind]?.xp ?? 5, now);
     fx(s, m.map, m.x, m.z, 'dust');
   }
+  noteTut(s, TUT.pest);
   say(s, role, 'toast.chase_m', undefined, 'death');
   s.characters[role].cd.swing = now + 280;
 }
@@ -1183,6 +1296,8 @@ function actHealHero(s: GameState, role: Role, now: number): void {
   ch.cd.uzdrow = now + 8000;
   const partner = s.characters[otherRole(role)];
   const near = partner.map === ch.map && hypot(ch.x, ch.z, partner.x, partner.z) < 2.35;
+  const before = partner.hp;
+  const wasDown = partner.downed;
   const stP = computeStats(s, otherRole(role));
   if (near && partner.downed) {
     doRevive(s, otherRole(role), 0.6, now);
@@ -1197,6 +1312,7 @@ function actHealHero(s: GameState, role: Role, now: number): void {
   ch.hp = Math.min(st.maxHp, ch.hp + 18);
   say(s, role, 'toast.use', { name: t('skill.zi_uzdrow.name') }, 'heal');
   fx(s, ch.map, ch.x, ch.z, 'spark', undefined, '#b8ffd0');
+  if (near && (partner.hp > before || (wasDown && !partner.downed))) noteTut(s, TUT.heal);
 }
 
 function actRevive(s: GameState, role: Role, now: number): void {
@@ -1319,12 +1435,21 @@ function actUse(s: GameState, role: Role, id: string, now: number): void {
     return;
   }
   const st = computeStats(s, role);
-  if (ch.hp >= st.maxHp && !(it.clearSlow && ch.slowUntil > now)) {
+  const partner = s.characters[otherRole(role)];
+  const pst = computeStats(s, otherRole(role));
+  const nearHurt = partner.map === ch.map && hypot(ch.x, ch.z, partner.x, partner.z) < 2.2 && partner.hp < pst.maxHp;
+  const selfFull = ch.hp >= st.maxHp && !(it.clearSlow && ch.slowUntil > now);
+  if (selfFull && !(id === 'bandaz' && nearHurt)) {
     say(s, role, 'toast.use_no', undefined, 'bad');
     return;
   }
   removeId(ch, id, 1);
-  ch.hp = Math.min(st.maxHp, ch.hp + it.heal);
+  if (!selfFull) ch.hp = Math.min(st.maxHp, ch.hp + it.heal);
+  if (id === 'bandaz' && nearHurt) {
+    partner.hp = Math.min(pst.maxHp, partner.hp + Math.ceil(it.heal / 2));
+    noteTut(s, TUT.heal);
+    fx(s, partner.map, partner.x, partner.z, 'spark', '+' + Math.ceil(it.heal / 2), '#9dffb0');
+  }
   if (it.clearSlow) ch.slowUntil = 0;
   if (id === 'miod') {
     ch.buffDef = 3;
@@ -1347,6 +1472,7 @@ function actTalk(s: GameState, role: Role, npcId: string, _now: number): void {
     return;
   }
   onEvent(s, { type: 'talk', npc: npcId, n: 1 });
+  if (npcId === 'stanislaw') noteTut(s, TUT.quest);
 }
 
 function actEmote(s: GameState, role: Role, now: number): void {
@@ -1513,6 +1639,7 @@ function actAccept(s: GameState, _role: Role, id: string): void {
   const q = s.quests.find((x) => x.id === id);
   if (!q || q.status !== 'available') return;
   q.status = 'active';
+  noteTut(s, TUT.quest);
   say(s, 'all', 'toast.quest_in', { name: t('quest.' + id + '.title') }, 'quest');
 }
 
@@ -1565,6 +1692,7 @@ function place(s: GameState, role: Role, mapId: MapId, from: MapId, now: number)
   ch.z = p.z;
   ch.rot = spot.rot;
   ch.sitting = false;
+  noteTut(s, TUT.travel + role);
   ch.posLockUntil = now + 500;
   ch.anim = 'idle';
   ensureMap(s, mapId);

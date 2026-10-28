@@ -61,6 +61,7 @@ check(actions.some((a) => a.id === 'kop' && a.enabled), 'kopanie przy grządce')
 
 let now = t0;
 applyAction(s, 'ogrodnik', { id: 'kop', x: s.characters.ogrodnik.x, z: s.characters.ogrodnik.z, rot: Math.PI }, now);
+check((s.flags.tut_dig ?? 0) >= 1, 'samouczek liczy kopanie');
 now += 200;
 applyAction(s, 'ogrodnik', { id: 'siej', species: 'marchew', x: s.characters.ogrodnik.x, z: s.characters.ogrodnik.z, rot: Math.PI }, now);
 check(s.plants.length === 1 && s.plants[0].needsWater, 'zasiana marchew czeka na wodę');

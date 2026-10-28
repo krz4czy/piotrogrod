@@ -1,4 +1,5 @@
 import { t } from './i18n.ts';
+import type { TutorBox, TutorModel } from './tutorial.ts';
 import type { JoySide, Settings } from './settings.ts';
 import type { MapId, Role } from './types.ts';
 
@@ -73,6 +74,7 @@ export class GameUI {
   readonly banner: HTMLElement;
   readonly joy: HTMLElement;
   readonly file: HTMLInputElement;
+  readonly tutor: HTMLElement;
   onGo: (name: string, el: HTMLElement) => void = () => {};
   onTap: () => void = () => {};
   onSetting: (key: string, value: string | number | boolean) => void = () => {};
@@ -107,7 +109,10 @@ export class GameUI {
     this.file.type = 'file';
     this.file.accept = 'application/json,.json';
     this.file.hidden = true;
-    this.root.append(this.screen, this.hud, this.dock, this.joy, this.banner, this.sheet, this.toasts, this.file);
+    this.tutor = document.createElement('div');
+    this.tutor.id = 'tutor';
+    this.tutor.hidden = true;
+    this.root.append(this.screen, this.hud, this.dock, this.joy, this.banner, this.sheet, this.toasts, this.tutor, this.file);
     parent.appendChild(this.root);
     this.root.addEventListener('click', (ev) => {
       const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-go]');
@@ -327,6 +332,7 @@ export class GameUI {
       ${seg('joystickSize', s.joystickSize, [['mala', t('settings.small')], ['srednia', t('settings.medium')], ['duza', t('settings.large')]])}
       <div>${esc(t('settings.lang'))}</div>
       <button class="btn tiny" type="button" disabled>${esc(t('settings.pl'))}</button>
+      <button class="btn alt" type="button" data-go="tutorial">${esc(t('settings.tutorial'))}</button>
       <button class="btn alt" type="button" data-go="fullscreen">${esc(t('settings.full'))}</button>
       <button class="btn" type="button" data-go="${fromPlay ? 'pause' : 'close'}">${esc(t('settings.back'))}</button>
     `);
@@ -344,7 +350,7 @@ export class GameUI {
       this.hud.innerHTML = `
         <div class="row">
           <button class="iconbtn" type="button" data-go="pause" aria-label="${esc(t('pause.title'))}">${ICON.menu}</button>
-          <div class="bars">
+          <div class="bars" id="hud-hp" data-go="tut-hp" role="button" aria-label="${esc(t('hud.you'))}">
             <div class="bar" title="${esc(t('hud.you'))}"><span id="hp-me"></span></div>
             <div class="bar xp" title="XP"><span id="xp-me"></span></div>
             <div class="bar partner" title="${esc(t('hud.partner'))}"><span id="hp-you"></span></div>
@@ -447,6 +453,49 @@ export class GameUI {
   showBuild(html: string): void { this.fillSheet(html); }
 
   pickImport(): void { this.file.click(); }
+
+  setTutor(model: TutorModel | null): void {
+    if (!model) {
+      this.tutor.hidden = true;
+      this.tutor.innerHTML = '';
+      this.tutor.dataset.sig = '';
+      this.root.dataset.tutor = '0';
+      return;
+    }
+    this.root.dataset.tutor = '1';
+    const sig = `${model.step}|${model.n}|${model.say}|${model.ask}`;
+    if (this.tutor.dataset.sig === sig) return;
+    this.tutor.dataset.sig = sig;
+    this.tutor.hidden = false;
+    const ask = model.ask ? `<p class="ask">${esc(model.ask)}</p>` : '';
+    this.tutor.innerHTML = `
+      <div class="ring" hidden></div>
+      <div class="bubble">
+        <div class="who"><i></i><span>Wójt Stanisław</span><b>${esc(t('tutor.progress', { n: model.n, total: model.total }))}</b></div>
+        <p class="say">${esc(model.say)}</p>
+        ${ask}
+        <button class="btn soft skip" type="button" data-go="tutor-skip">${esc(t('tutor.skip'))}</button>
+      </div>`;
+  }
+
+  placeTutor(ring: TutorBox | null, bubble: { left: number; top: number }): void {
+    const box = this.tutor.querySelector<HTMLElement>('.bubble');
+    const mark = this.tutor.querySelector<HTMLElement>('.ring');
+    if (box) {
+      box.style.left = `${bubble.left}px`;
+      box.style.top = `${bubble.top}px`;
+    }
+    if (!mark) return;
+    if (!ring) {
+      mark.hidden = true;
+      return;
+    }
+    mark.hidden = false;
+    mark.style.left = `${ring.left}px`;
+    mark.style.top = `${ring.top}px`;
+    mark.style.width = `${ring.width}px`;
+    mark.style.height = `${ring.height}px`;
+  }
 }
 
 export function roleName(role: Role): string {

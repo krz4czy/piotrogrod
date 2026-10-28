@@ -479,4 +479,53 @@ label.check { display: flex; align-items: center; gap: 8px; font-weight: 700; mi
 .coins { color: #b8860b; }
 
 #ui[data-sheet='1'] .dock { visibility: hidden; }
-#ui[data-mode='menu'] .hud, #ui[data-mode='menu'] .dock, #ui[data-mode='menu'] .banner { display: none; }
+#ui[data-tutor='1'] .sheet { max-height: min(52dvh, 460px); }
+#ui[data-mode='menu'] .hud, #ui[data-mode='menu'] .dock, #ui[data-mode='menu'] .banner, #ui[data-mode='menu'] #tutor { display: none; }
+
+#tutor {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+#tutor .ring {
+  position: absolute;
+  border-radius: 20px;
+  box-shadow: 0 0 0 3px #fffef8, 0 0 0 7px #2fbe4a, 0 0 0 12px rgba(47, 190, 74, 0.35);
+  animation: tutor-pulse 1.15s ease-in-out infinite;
+  pointer-events: none;
+}
+#tutor .bubble {
+  position: absolute;
+  width: min(280px, calc(100% - 108px));
+  pointer-events: none;
+  background: var(--paper);
+  border-radius: 22px;
+  padding: 12px 12px 10px;
+  box-shadow: var(--shadow);
+}
+#tutor .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #128a34;
+  font-size: 13px;
+}
+#tutor .who i {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #4a6fd6;
+  box-shadow: inset 0 -6px 0 #2f4ea8, 0 0 0 2px #fff;
+  flex: none;
+}
+#tutor .who b { margin-left: auto; color: var(--muted); font-size: 12px; }
+#tutor .say { margin: 6px 0 8px; font-size: 15px; line-height: 1.3; }
+#tutor .ask { margin: 0 0 8px; font-weight: 700; font-size: 13px; color: #8a5a12; }
+#tutor .skip { width: 100%; min-height: 44px; pointer-events: auto; }
+#hud-hp { cursor: pointer; }
+@keyframes tutor-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
