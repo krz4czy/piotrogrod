@@ -1,0 +1,20 @@
+{
+  "name": "Piotrogród",
+  "short_name": "Piotrogród",
+  "description": "Kooperacyjny ogród dla dwojga. Ogrodnik i Zielarka grają razem na dwóch telefonach.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#8fd4ff",
+  "theme_color": "#3cbf4a",
+  "lang": "pl",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

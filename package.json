@@ -1,0 +1,22 @@
+{
+  "name": "piotrogrod",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 4738 --strictPort",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4738 --strictPort",
+    "selftest": "node --experimental-strip-types --no-warnings src/selftest.ts"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@fontsource/fredoka": "^5.3.0",
+    "peerjs": "^1.5.5",
+    "three": "^0.186.1"
+  }
+}
