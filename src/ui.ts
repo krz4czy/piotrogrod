@@ -168,26 +168,90 @@ export class GameUI {
     }
   }
 
-  showMenu(opts: { canContinue: boolean; resumeCode: string }): void {
+  showMenu(opts: {
+    canContinue: boolean;
+    resumeCode: string;
+    cloud?: 'off' | 'ready' | 'wait';
+    worlds?: { code: string; name: string; role: string }[];
+    migrate?: boolean;
+  }): void {
     this.closeSheet();
     this.setMode('menu');
     const resume = opts.resumeCode
       ? `<button class="btn soft" type="button" data-go="resume">${esc(t('menu.resume', { code: opts.resumeCode }))}</button>`
       : '';
+    const quick = `
+      <p class="hint">${esc(t('cloud.quickHint'))}</p>
+      <button class="btn alt" type="button" data-go="new">${esc(t('menu.new'))}</button>
+      <button class="btn alt" type="button" data-go="continue" ${opts.canContinue ? '' : 'disabled'}>${esc(t('menu.continue'))}</button>
+      ${opts.canContinue ? '' : `<p class="hint">${esc(t('menu.noSave'))}</p>`}
+      <button class="btn alt" type="button" data-go="join">${esc(t('menu.join'))}</button>
+      ${resume}`;
+    const worlds = (opts.worlds ?? []).map((w) =>
+      `<button class="btn alt world" type="button" data-go="world-enter" data-code="${esc(w.code)}" data-role="${esc(w.role)}"><b>${esc(w.name)}</b><span>${esc(t('role.' + w.role))} · ${esc(w.code)}</span></button>`,
+    ).join('');
+    const cloud = `<p class="hint">${esc(t('cloud.blurb'))}</p>
+          <p class="hint">${esc(t('cloud.mine'))}</p>
+          ${worlds || `<p class="hint">${esc(t('cloud.empty'))}</p>`}
+          <button class="btn" type="button" data-go="world-new">${esc(t('cloud.new'))}</button>
+          <button class="btn alt" type="button" data-go="world-join">${esc(t('cloud.join'))}</button>
+          ${opts.migrate ? `<button class="btn soft" type="button" data-go="world-migrate">${esc(t('cloud.migrate'))}</button>` : ''}
+          <p class="hint">${esc(t('cloud.quick'))}</p>
+          ${quick}`;
     this.screen.innerHTML = `
       <div class="screen">
         <h1 class="logo">Piotrogród</h1>
         <p class="tag">${esc(t('menu.tag'))}</p>
         <div class="panel">
-          <button class="btn" type="button" data-go="new">${esc(t('menu.new'))}</button>
-          <button class="btn alt" type="button" data-go="continue" ${opts.canContinue ? '' : 'disabled'}>${esc(t('menu.continue'))}</button>
-          ${opts.canContinue ? '' : `<p class="hint">${esc(t('menu.noSave'))}</p>`}
-          <button class="btn alt" type="button" data-go="join">${esc(t('menu.join'))}</button>
-          ${resume}
+          ${cloud}
           <button class="btn soft" type="button" data-go="settings">${esc(t('menu.settings'))}</button>
           <button class="btn soft" type="button" data-go="credits">${esc(t('menu.credits'))}</button>
         </div>
       </div>`;
+  }
+
+  showWorldNew(): void {
+    this.closeSheet();
+    this.setMode('menu');
+    this.screen.innerHTML = `
+      <div class="screen">
+        <h1 class="logo">Piotrogród</h1>
+        <div class="panel">
+          <h2>${esc(t('cloud.new'))}</h2>
+          <input class="code-in" id="world-name" maxlength="32" autocomplete="off" placeholder="${esc(t('cloud.namePh'))}" aria-label="${esc(t('cloud.name'))}" />
+          <p class="hint">${esc(t('cloud.pick'))}</p>
+          <button class="btn" type="button" data-go="world-role" data-role="ogrodnik">${esc(t('role.ogrodnik'))}</button>
+          <button class="btn alt" type="button" data-go="world-role" data-role="zielarka">${esc(t('role.zielarka'))}</button>
+          <button class="btn soft" type="button" data-go="back">${esc(t('settings.back'))}</button>
+        </div>
+      </div>`;
+    this.screen.querySelector<HTMLInputElement>('#world-name')?.focus();
+  }
+
+  worldName(): string {
+    return (this.screen.querySelector<HTMLInputElement>('#world-name')?.value ?? '').trim();
+  }
+
+  showWorldJoin(): void {
+    this.closeSheet();
+    this.setMode('menu');
+    this.screen.innerHTML = `
+      <div class="screen">
+        <h1 class="logo">Piotrogród</h1>
+        <div class="panel">
+          <h2>${esc(t('cloud.join'))}</h2>
+          <input class="code-in" id="world-code" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="${esc(t('join.ph'))}" aria-label="${esc(t('cloud.join'))}" />
+          <p class="hint">${esc(t('cloud.pick'))}</p>
+          <button class="btn" type="button" data-go="world-join-go" data-role="ogrodnik">${esc(t('role.ogrodnik'))}</button>
+          <button class="btn alt" type="button" data-go="world-join-go" data-role="zielarka">${esc(t('role.zielarka'))}</button>
+          <button class="btn soft" type="button" data-go="back">${esc(t('settings.back'))}</button>
+        </div>
+      </div>`;
+    this.screen.querySelector<HTMLInputElement>('#world-code')?.focus();
+  }
+
+  worldCode(): string {
+    return (this.screen.querySelector<HTMLInputElement>('#world-code')?.value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
 
   showRoles(title: string): void {
@@ -288,7 +352,7 @@ export class GameUI {
     return this.root.dataset.sheet === '1';
   }
 
-  showPause(): void {
+  showPause(world = false): void {
     const items: [string, string][] = [
       ['resume-play', t('pause.resume')],
       ['inv', t('pause.inv')],
@@ -302,6 +366,7 @@ export class GameUI {
       ['import', t('pause.import')],
       ['help', t('pause.help')],
       ['credits', t('menu.credits')],
+      ...(world ? [['world-send', 'Wyślij świat'], ['world-load', 'Wczytaj świat']] as [string, string][] : []),
       ['menu-exit', t('pause.menu')],
     ];
     this.fillSheet(`<h2>${esc(t('pause.title'))}</h2>` + items.map(([id, label]) =>

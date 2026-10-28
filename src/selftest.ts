@@ -6,8 +6,10 @@ import {
   isState,
   listActions,
   normalize,
+  restOffline,
   simulate,
 } from './logic.ts';
+import { commitWorld, createJoinDoc, createWorldDoc, mergeWorld } from './world.ts';
 import type { GameState, Plant, Role } from './types.ts';
 
 let failed = 0;
@@ -130,6 +132,46 @@ const gh = s.buildings.greenhouse;
 now += 200;
 applyAction(s, 'ogrodnik', { id: 'buduj', build: 'greenhouse', x: s.characters.ogrodnik.x, z: s.characters.ogrodnik.z, rot: 0 }, now);
 check(s.buildings.greenhouse === gh, 'budowa bez monet nie wstaje');
+
+s.connected = { ogrodnik: true, zielarka: false };
+s.plants.push(plant({ id: 'rain', c: 8, r: 5, species: 'salata', stage: 'sprout', needsWater: true }));
+s.flags.soloNext = 1;
+restOffline(s, 9_000_000_000_000);
+const rain = s.plants.find((p) => p.id === 'rain');
+check(!!rain && !rain.needsWater, 'deszcz podlewa w grze solo');
+check(s.characters.zielarka.anim === 'sleep', 'zielarka śpi w domu');
+
+const base = createGame(2_000);
+const docA = createWorldDoc('A', 'ABCDE', 'ogrodnik', base);
+const playA = JSON.parse(JSON.stringify(docA.state)) as GameState;
+playA.coins = 30;
+playA.plants.push(plant({ id: 'shared', c: 4, r: 4, species: 'marchew', stage: 'seed', needsWater: true }));
+const savedA = commitWorld(docA, playA, 'ogrodnik');
+const docB = createWorldDoc('A', 'ABCDE', 'zielarka', base);
+const playB = JSON.parse(JSON.stringify(docB.state)) as GameState;
+playB.coins = 25;
+playB.plants.push(plant({ id: 'shared', c: 4, r: 4, species: 'marchew', stage: 'seed', needsWater: false }));
+const savedB = commitWorld(docB, playB, 'zielarka');
+savedB.plantU.shared = (savedA.plantU.shared ?? 0) + 5;
+const merged = mergeWorld(savedA, savedB);
+const shared = merged.state.plants.find((p) => p.id === 'shared');
+check(merged.state.coins === 35, 'monety z obu stron się sumują: ' + merged.state.coins);
+check(!!shared && shared.needsWater === false, 'nowsza roślina wygrywa');
+check(merged.state.characters.ogrodnik.inv.some((st) => st.id === 'seed_marchew'), 'zostają nasiona ogrodnika');
+
+const hostDoc = createWorldDoc('Grządki', 'ZZZZZ', 'ogrodnik', createGame(3_000));
+const hosted = JSON.parse(JSON.stringify(hostDoc.state)) as GameState;
+hosted.soil['4,4'] = { tilled: true, wetUntil: 0 };
+hosted.plants.push(plant({ id: 'joinme', c: 4, r: 4, species: 'marchew', stage: 'seed', needsWater: true }));
+const savedHost = commitWorld(hostDoc, hosted, 'ogrodnik');
+const shell = createJoinDoc('Świat ZZZZZ', 'ZZZZZ', 'zielarka', createGame(9_000));
+const joined = mergeWorld(savedHost, shell);
+check(joined.name === 'Grządki', 'zostaje nazwa założyciela');
+check(!joined.provisional, 'po spotkaniu świat nie jest już pusty');
+check(joined.state.plants.some((p) => p.id === 'joinme' && p.needsWater), 'puste dołączenie nie gubi rośliny');
+check(!!joined.state.soil['4,4']?.tilled, 'puste dołączenie nie gubi grządki');
+check(joined.state.plants.length === savedHost.state.plants.length, 'start zielarki nie dokłada grządek');
+check(joined.state.coins === savedHost.state.coins, 'puste dołączenie nie rusza monet');
 
 if (failed) throw new Error('selftest: ' + failed);
 console.log('selftest ok');

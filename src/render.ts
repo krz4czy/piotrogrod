@@ -711,7 +711,7 @@ export class WorldView {
       const ch = state.characters[role];
       if (ch.map !== mapId) continue;
       const name = role === self ? 'Ty' : role === 'ogrodnik' ? 'Ogrodnik' : 'Zielarka';
-      put(name, ch.x, 2.95, ch.z, role === self ? 'me' : 'them');
+      put(ch.anim === 'sleep' && role !== self ? `${name} · zzz` : name, ch.x, 2.95, ch.z, role === self ? 'me' : 'them');
       if (ch.emote && ch.emoteUntil > Date.now()) {
         const bubble = ch.emote === 'heart' ? '❤' : ch.emote === 'wave' ? '👋' : ch.emote === 'laugh' ? '😄' : '🌸';
         put(bubble, ch.x, 3.25, ch.z, 'emote');

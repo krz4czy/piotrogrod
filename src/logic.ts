@@ -1758,8 +1758,9 @@ function advancePlants(s: GameState, now: number): void {
     const order: Plant['stage'][] = ['seed', 'sprout', 'growing', 'mature'];
     const i = order.indexOf(p.stage);
     if (i < 0 || i >= order.length - 1) continue;
+    const due = p.readyAt;
     p.stage = order[i + 1];
-    p.since = now;
+    p.since = due;
     p.needsPrune = false;
     if (p.stage === 'mature') {
       p.needsWater = false;
@@ -1826,6 +1827,7 @@ export function simulate(s: GameState, now: number, dt: number): void {
     if (ch.water > st.waterMax) ch.water = st.waterMax;
   }
   refreshQuests(s);
+  restOffline(s, now);
   const burza = s.quests.find((q) => q.id === 'burza' && q.status === 'active');
   if (burza && !isReady(s, burza) && !s.flags.stormQueued && s.weather.kind === 'clear' && someone(s, 'ogrod')) {
     s.flags.stormQueued = 1;
@@ -1839,6 +1841,89 @@ export function simulate(s: GameState, now: number, dt: number): void {
       spawnPest(s, 'kret');
     }
   }
+}
+
+export function restOffline(s: GameState, now: number): void {
+  const online = ROLES.filter((r) => s.connected[r]);
+  if (online.length !== 1) return;
+  const asleep: Role = online[0] === 'ogrodnik' ? 'zielarka' : 'ogrodnik';
+  const ch = s.characters[asleep];
+  const spot = tileCenter(MAPS.ogrod, 2, 7);
+  ch.map = 'ogrod';
+  ch.x = spot.x;
+  ch.z = spot.z;
+  ch.rot = Math.PI;
+  ch.sitting = true;
+  ch.anim = 'sleep';
+  ch.downed = false;
+  if (ch.hp < 1) ch.hp = 1;
+  if (!s.flags.soloNext) {
+    s.flags.soloNext = now + 20000;
+    return;
+  }
+  if (now < s.flags.soloNext) return;
+  const did = asleep === 'zielarka' ? rainOne(s, now) : gardenNap(s, now);
+  s.flags.soloNext = now + (did ? 20000 : 6000);
+  if (did) s.rev += 1;
+}
+
+function rainOne(s: GameState, now: number): boolean {
+  const p = s.plants.find((x) => x.needsWater);
+  if (!p) return false;
+  p.needsWater = false;
+  const key = soilKey(p.c, p.r);
+  const cell = s.soil[key] ?? { tilled: true, wetUntil: 0 };
+  cell.tilled = true;
+  cell.wetUntil = now + 22000;
+  s.soil[key] = cell;
+  resume(s, p, now);
+  say(s, 'all', 'toast.rain', undefined, 'water');
+  return true;
+}
+
+function gardenNap(s: GameState, now: number): boolean {
+  const rows = MAPS.ogrod.rows;
+  const planted = (c: number, r: number) => s.plants.some((p) => p.c === c && p.r === r);
+  let sowAt: { c: number; r: number } | null = null;
+  let tillAt: { c: number; r: number } | null = null;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      if (rows[r][c] !== 'b' || planted(c, r)) continue;
+      if (s.soil[soilKey(c, r)]?.tilled) {
+        if (!sowAt) sowAt = { c, r };
+      } else if (!tillAt) tillAt = { c, r };
+    }
+  }
+  if (sowAt) {
+    const inv = s.characters.ogrodnik.inv;
+    const stack = inv.find((st) => st.n > 0 && st.id.startsWith('seed_'));
+    if (stack) {
+      const species = stack.id.slice(5);
+      try {
+        getSpecies(species);
+      } catch {
+        return tillBed(s, tillAt);
+      }
+      stack.n -= 1;
+      if (stack.n <= 0) s.characters.ogrodnik.inv = inv.filter((st) => st.n > 0);
+      s.plants.push({
+        id: uid('p'), c: sowAt.c, r: sowAt.r, species, stage: 'seed', plantedBy: 'ogrodnik',
+        hybrid: false, needsWater: true, needsPrune: false, needsHeal: false, fertilized: false,
+        quality: 1, since: now, readyAt: null, staked: false, covered: false,
+      });
+      say(s, 'all', 'toast.solo_sow', undefined, 'sow');
+      return true;
+    }
+  }
+  return tillBed(s, tillAt);
+}
+
+function tillBed(s: GameState, at: { c: number; r: number } | null): boolean {
+  if (!at) return false;
+  const key = soilKey(at.c, at.r);
+  s.soil[key] = { tilled: true, wetUntil: s.soil[key]?.wetUntil ?? 0 };
+  say(s, 'all', 'toast.solo_till', undefined, 'dig');
+  return true;
 }
 
 function someone(s: GameState, map: MapId): boolean {

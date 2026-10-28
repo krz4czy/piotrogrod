@@ -7,6 +7,23 @@ import '@fontsource/fredoka/latin-ext-700.css';
 import './style.css';
 import { AudioBus } from './audio.ts';
 import {
+  commitWorld,
+  createJoinDoc,
+  createWorldDoc,
+  exportWorldText,
+  importWorld,
+  listWorlds,
+  loadWorldLocal,
+  makeWorldCode,
+  mergeWorld,
+  parseWorldLink,
+  parseWorldText,
+  saveWorld,
+  worldLink,
+  worldPeerId,
+  type WorldDoc,
+} from './world.ts';
+import {
   BUILDS,
   ITEMS,
   MAP_ORDER,
@@ -110,6 +127,13 @@ class App {
   readonly ui: GameUI;
   readonly preview: GameState;
   net: Net | null = null;
+  worldCode = '';
+  world: WorldDoc | null = null;
+  linkTimer = 0;
+  dialing = false;
+  peered = false;
+  lastNet = '';
+  listening = false;
   state: GameState | null = null;
   role: Role = 'ogrodnik';
   phase: Phase = 'menu';
@@ -179,6 +203,7 @@ class App {
     });
     this.exposeTest();
     this.bindInput();
+    this.absorbLink();
     this.refreshMenu();
     this.prev = performance.now();
     requestAnimationFrame(this.loop);
@@ -300,6 +325,7 @@ class App {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') {
         if (e.key === 'Enter' && (e.target as HTMLElement).id === 'room-code') this.onGo('code-next', e.target as HTMLElement);
+        if (e.key === 'Enter' && (e.target as HTMLElement).id === 'world-code') this.onGo('world-join-go', e.target as HTMLElement);
         return;
       }
       this.keys.add(e.key.toLowerCase());
@@ -331,7 +357,13 @@ class App {
     const recent = !!session && Date.now() - session.at < 12 * 3600 * 1000;
     this.phase = 'menu';
     this.sheetKind = '';
-    this.ui.showMenu({ canContinue: !!save, resumeCode: recent && session ? session.code : '' });
+    this.ui.showMenu({
+      canContinue: !!save,
+      resumeCode: recent && session ? session.code : '',
+      migrate: !!save,
+      cloud: 'ready',
+      worlds: listWorlds(),
+    });
   }
 
   private onSetting(key: string, value: string | number | boolean): void {
@@ -384,6 +416,40 @@ class App {
       this.phase = 'join';
       this.intent = 'join';
       this.ui.showJoin();
+      return;
+    }
+    if (name === 'world-new') {
+      this.ui.showWorldNew();
+      return;
+    }
+    if (name === 'world-join') {
+      this.ui.showWorldJoin();
+      return;
+    }
+    if (name === 'world-role') {
+      const role = el.dataset.role === 'zielarka' ? 'zielarka' : 'ogrodnik';
+      this.makeWorld(this.ui.worldName(), role);
+      return;
+    }
+    if (name === 'world-join-go') {
+      const role = el.dataset.role === 'zielarka' ? 'zielarka' : el.dataset.role === 'ogrodnik' ? 'ogrodnik' : null;
+      this.joinWorld(this.ui.worldCode(), role);
+      return;
+    }
+    if (name === 'world-enter') {
+      this.openWorld((el.dataset.code ?? '').toUpperCase());
+      return;
+    }
+    if (name === 'world-migrate') {
+      this.migrateSave();
+      return;
+    }
+    if (name === 'world-send') {
+      this.sendWorld();
+      return;
+    }
+    if (name === 'world-load') {
+      this.ui.pickImport();
       return;
     }
     if (name === 'settings') {
@@ -453,7 +519,7 @@ class App {
     if (name === 'pause') {
       if (this.phase !== 'play') return;
       this.sheetKind = 'pause';
-      this.ui.showPause();
+      this.ui.showPause(!!this.worldCode);
       return;
     }
     if (name === 'resume-play') {
@@ -784,24 +850,64 @@ class App {
       this.lastHeard = Date.now();
     };
     net.onDisconnected = () => {
+      if (this.net !== net) return;
+      const wasOk = this.link === 'ok';
       this.link = 'off';
-      if (this.host && this.guest && this.state) this.state.connected[this.guest.role] = false;
-      if (this.phase === 'play' || this.phase === 'lobby') this.ui.toast(t('toast.disconnected'));
+      if (this.worldCode && this.state) {
+        this.host = true;
+        this.guest = null;
+        this.state.connected[this.role] = true;
+        this.state.connected[otherRole(this.role)] = false;
+        if (wasOk && this.phase === 'play') this.ui.toast(t('cloud.asleep'));
+        if (this.role !== 'ogrodnik') {
+          window.setTimeout(() => {
+            if (this.net === net && this.link !== 'ok') {
+              net.destroy();
+              this.net = null;
+            }
+          }, 0);
+        }
+      } else {
+        if (this.host && this.guest && this.state) this.state.connected[this.guest.role] = false;
+        if (this.phase === 'play' || this.phase === 'lobby') this.ui.toast(t('toast.disconnected'));
+      }
       if (this.phase === 'play' && this.state) {
         this.paintHud(Date.now());
         this.paintBanner(Date.now());
       }
     };
     net.onError = (type) => {
-      if (this.booting) return;
+      if (this.booting || this.worldCode) return;
       if (type === 'peer-unavailable') this.ui.toast(t('toast.no_room'));
       else if (type === 'network' || type === 'server-error' || type === 'socket-error') this.ui.toast(t('toast.net'));
+    };
+    net.onSignalLost = () => {
+      if (this.net !== net || !this.worldCode) return;
+      this.peered = false;
     };
   }
 
   private prepareHello(msg: NetMsg): boolean {
     if (!this.state || !this.host) return false;
     const requested = msg.role === 'zielarka' ? 'zielarka' : msg.role === 'ogrodnik' ? 'ogrodnik' : null;
+    if (this.worldCode && this.world) {
+      const token = String(msg.token ?? '');
+      if (!requested || !token || requested === this.role) return false;
+      const incoming = msg.world as WorldDoc | undefined;
+      if (incoming && incoming.code === this.worldCode) {
+        this.world = mergeWorld(this.world, incoming);
+        this.world.role = this.role;
+        this.state = normalize(cloneState(this.world.state));
+        catchUp(this.state, Date.now());
+        saveWorld(this.world);
+      }
+      this.guest = { role: requested, token };
+      this.swapped = false;
+      this.state.connected[this.role] = true;
+      this.state.connected[requested] = true;
+      this.noticeCursor = this.state.noticeSeq;
+      return true;
+    }
     const token = String(msg.token ?? '');
     if (!requested || !token) return false;
     const save = msg.save as SaveBlob | null;
@@ -865,7 +971,7 @@ class App {
     if (!this.state || !this.guest || !this.net) return;
     this.link = 'ok';
     this.lastHeard = Date.now();
-    this.net.send({ t: 'welcome', state: this.state, role: this.guest.role, swapped: this.swapped });
+    this.net.send({ t: 'welcome', state: this.state, role: this.guest.role, swapped: this.swapped, world: this.world });
     this.ui.toast(t('toast.connected'));
     this.audio.play('join');
     if (this.phase === 'lobby') this.ui.showLobby(this.code, true);
@@ -882,6 +988,13 @@ class App {
     this.role = msg.role === 'zielarka' ? 'zielarka' : 'ogrodnik';
     this.noticeCursor = this.state.noticeSeq;
     this.host = false;
+    if (msg.world && this.worldCode) {
+      const incoming = msg.world as WorldDoc;
+      if (incoming.code === this.worldCode) {
+        this.world = incoming.role === this.role ? incoming : { ...incoming, role: this.role };
+        saveWorld(this.world);
+      }
+    }
     if (msg.swapped) this.ui.toast(t('toast.role_swap', { name: t('role.' + this.role) }));
     else this.ui.toast(t('toast.connected'));
     this.audio.play('join');
@@ -973,6 +1086,19 @@ class App {
 
   private async onFile(file: File): Promise<void> {
     const text = await file.text();
+    const asWorld = parseWorldText(text);
+    if (asWorld) {
+      const doc = importWorld(asWorld, this.world?.role ?? asWorld.role);
+      this.ui.toast(t('cloud.loaded'));
+      if (this.phase === 'menu') this.refreshMenu();
+      else if (this.worldCode === doc.code && this.state) {
+        this.world = doc;
+        this.state = normalize(cloneState(doc.state));
+        catchUp(this.state, Date.now());
+        this.state.connected[this.role] = true;
+      }
+      return;
+    }
     const blob = parseImport(text);
     if (!blob) {
       this.ui.toast(t('toast.import_bad'));
@@ -1018,6 +1144,18 @@ class App {
       flags: () => ({ ...(this.state?.flags ?? {}) }),
       level: () => this.state?.characters[this.role].level ?? 0,
       map: () => this.state?.characters[this.role].map ?? '',
+      code: () => this.code,
+      host: () => this.host,
+      peered: () => this.peered,
+      net: () => this.lastNet,
+      phase: () => this.phase,
+      connected: () => ({ ...(this.state?.connected ?? { ogrodnik: false, zielarka: false }) }),
+      soil: () => Object.entries(this.state?.soil ?? {}).filter(([, cell]) => cell.tilled).map(([key]) => key),
+      anim: (role: Role) => this.state?.characters[role].anim ?? '',
+      pos: (role: Role) => {
+        const ch = this.state?.characters[role];
+        return ch ? { x: ch.x, z: ch.z, map: ch.map } : null;
+      },
       standAt: (x: number, z: number, rot: number) => {
         if (!this.state) return;
         const ch = this.state.characters[this.role];
@@ -1029,20 +1167,196 @@ class App {
     (window as unknown as { __garden?: typeof bridge }).__garden = bridge;
   }
 
+  private absorbLink(): void {
+    if (!location.hash.startsWith('#swiat=')) return;
+    const doc = parseWorldLink(location.hash.slice('#swiat='.length));
+    if (!doc) return;
+    importWorld(doc, doc.role);
+    history.replaceState(null, '', location.pathname + location.search);
+    this.ui.toast(t('cloud.loaded'));
+  }
+
+  private makeWorld(name: string, role: Role): void {
+    const clean = name.trim();
+    if (!clean) {
+      this.ui.toast(t('cloud.needName'));
+      return;
+    }
+    let code = makeWorldCode();
+    while (loadWorldLocal(code)) code = makeWorldCode();
+    const doc = createWorldDoc(clean, code, role, createGame(Date.now()));
+    saveWorld(doc);
+    this.ui.toast(t('cloud.created', { code }));
+    this.startWorld(doc);
+  }
+
+  private joinWorld(code: string, role: Role | null): void {
+    const id = code.toUpperCase();
+    if (id.length < 4) {
+      this.ui.toast(t('cloud.needCode'));
+      return;
+    }
+    const existing = loadWorldLocal(id);
+    if (existing) {
+      this.startWorld(existing);
+      return;
+    }
+    if (!role) {
+      this.ui.toast(t('role.pick'));
+      return;
+    }
+    const doc = createJoinDoc('Świat ' + id, id, role, createGame(Date.now()));
+    saveWorld(doc);
+    this.startWorld(doc);
+  }
+
+  private openWorld(code: string): void {
+    const doc = loadWorldLocal(code);
+    if (!doc) {
+      this.ui.toast(t('cloud.missing'));
+      return;
+    }
+    this.startWorld(doc);
+  }
+
+  private migrateSave(): void {
+    const save = readSave();
+    if (!save) {
+      this.ui.toast(t('menu.noSave'));
+      return;
+    }
+    const role = readSession()?.role === 'zielarka' ? 'zielarka' : 'ogrodnik';
+    let code = makeWorldCode();
+    while (loadWorldLocal(code)) code = makeWorldCode();
+    const doc = createWorldDoc('Piotrogród', code, role, save.state);
+    saveWorld(doc);
+    this.ui.toast(t('cloud.created', { code }));
+    this.startWorld(doc);
+  }
+
+  private startWorld(doc: WorldDoc): void {
+    this.world = doc;
+    this.worldCode = doc.code;
+    this.role = doc.role;
+    this.code = doc.code;
+    this.token = localStorage.getItem('piotrogrod-device') ?? '';
+    if (!this.token) {
+      this.token = uid('d');
+      localStorage.setItem('piotrogrod-device', this.token);
+    }
+    this.host = true;
+    this.guest = null;
+    this.link = 'off';
+    this.state = normalize(cloneState(doc.state));
+    catchUp(this.state, Date.now());
+    this.state.connected = { ogrodnik: false, zielarka: false };
+    this.state.connected[this.role] = true;
+    this.noticeCursor = this.state.noticeSeq;
+    this.savedRev = -1;
+    this.enterPlay();
+    const kick = () => {
+      if (this.role === 'ogrodnik') void this.listenWorld();
+      else void this.dialWorld();
+    };
+    kick();
+    if (this.linkTimer) window.clearInterval(this.linkTimer);
+    this.linkTimer = window.setInterval(kick, 3000);
+  }
+
+  private async listenWorld(): Promise<void> {
+    if (this.peered || this.listening || !this.worldCode || this.role !== 'ogrodnik') return;
+    this.listening = true;
+    const net = new Net();
+    const old = this.net;
+    this.net = net;
+    this.attachNet(net);
+    old?.destroy();
+    this.host = true;
+    const id = worldPeerId(this.worldCode, 'ogrodnik');
+    try {
+      await net.host(this.worldCode, id);
+      if (this.net === net) {
+        this.peered = true;
+        this.lastNet = 'host';
+      }
+    } catch (err) {
+      if (this.net === net) {
+        this.peered = false;
+        this.lastNet = 'host ' + (err instanceof Error ? err.message : 'err');
+      }
+    } finally {
+      this.listening = false;
+    }
+  }
+
+  private async dialWorld(): Promise<void> {
+    if (this.dialing || !this.worldCode || this.role !== 'zielarka' || this.link === 'ok') return;
+    this.dialing = true;
+    const net = new Net();
+    const old = this.net;
+    this.net = net;
+    this.attachNet(net);
+    try {
+      await net.join(this.worldCode, worldPeerId(this.worldCode, 'ogrodnik'), 10000);
+      old?.destroy();
+      this.host = false;
+      this.lastNet = 'dial';
+      net.send({ t: 'hello', role: this.role, token: this.token, world: this.world });
+    } catch (err) {
+      this.lastNet = 'dial ' + (err instanceof Error ? err.message : 'err');
+      net.destroy();
+      if (this.net === net) this.net = old ?? null;
+      this.host = true;
+    } finally {
+      this.dialing = false;
+    }
+  }
+
+  private sendWorld(): void {
+    if (!this.world || !this.state) {
+      this.ui.toast(t('cloud.bad'));
+      return;
+    }
+    this.saveMaybe(Date.now(), true);
+    if (!this.world) return;
+    const json = exportWorldText(this.world);
+    const file = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = `piotrogrod-swiat-${this.world.code}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const link = worldLink(this.world);
+    if (link) {
+      void navigator.clipboard.writeText(link).then(
+        () => this.ui.toast(t('cloud.link')),
+        () => this.ui.toast(t('cloud.sent')),
+      );
+    } else this.ui.toast(t('cloud.sent'));
+  }
+
   private enterPlay(): void {
     if (!this.state) return;
+    const already = this.phase === 'play';
     this.phase = 'play';
     this.sheetKind = '';
     this.dialog = null;
     this.ui.showPlay();
     this.audio.unlock();
     this.paintHud(Date.now());
-    if (!tutorialDone(this.role)) this.tutor.begin(this.role, this.state);
-    else this.tutor.stop(false);
+    if (!already) {
+      if (!tutorialDone(this.role)) this.tutor.begin(this.role, this.state);
+      else this.tutor.stop(false);
+    }
   }
 
   private backMenu(dropSession: boolean): void {
     this.saveMaybe(Date.now(), true);
+    if (this.linkTimer) window.clearInterval(this.linkTimer);
+    this.linkTimer = 0;
+    this.peered = false;
+    this.world = null;
+    this.worldCode = '';
     this.net?.destroy();
     this.net = null;
     this.state = null;
@@ -1073,6 +1387,16 @@ class App {
 
   private saveMaybe(now: number, force = false): void {
     if (!this.state) return;
+    if (this.world) {
+      if (!force && now - this.lastSave < 1500) return;
+      if (!force && this.state.rev === this.savedRev && !this.moving) return;
+      this.world = commitWorld(this.world, this.state, this.role);
+      saveWorld(this.world);
+      this.lastSave = now;
+      this.savedRev = this.state.rev;
+      this.savedAt = this.world.savedAt;
+      return;
+    }
     if (!force && now - this.lastSave < 5000) return;
     if (!force && this.state.rev === this.savedRev) return;
     const blob = writeSave(this.state);
@@ -1104,7 +1428,7 @@ class App {
     this.ui.setDock(dock, true);
     const partnerOn = !!this.state.connected[partner.role];
     const partnerNote = !partnerOn
-      ? t('hud.offline')
+      ? (this.worldCode ? t('hud.asleep') : t('hud.offline'))
       : partner.map !== ch.map
         ? t('map.' + partner.map)
         : t('hud.partner');

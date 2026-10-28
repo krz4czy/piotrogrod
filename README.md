@@ -8,11 +8,11 @@ Kooperacyjny ogród dla dwojga na telefon. Jedno z was jest Ogrodnikiem, drugie 
 
 ## Jak grać
 
-1. Jedna osoba stuka **Nowa gra**, wybiera rolę i odczytuje pięcioznakowy kod pokoju.
-2. Druga stuka **Dołącz**, wpisuje kod i wybiera drugą rolę.
-3. Oboje wchodzicie do ogrodu. Lewy kciuk prowadzi postać, prawe przyciski robią resztę (stronę joysticka zmienisz w ustawieniach).
+1. Jedna osoba stuka **Nowy świat**, wpisuje nazwę i wybiera rolę. Pojawia się kod świata.
+2. Druga stuka **Dołącz do świata**, wpisuje kod raz i wybiera drugą rolę. Potem świat jest na liście **Moje światy** na obu telefonach.
+3. Każde z was może wejść samo. Partner śpi wtedy w domu, a deszcz albo drzemka powoli nadrabiają brakującą rolę. Gdy wejdziecie oboje, zapisy się łączą i gracie na żywo.
 
-Połączenie zestawia publiczny broker PeerJS. Ruch między telefonami idzie przez WebRTC, więc strona musi być po HTTPS. Adres powyżej to spełnia.
+Połączenie na żywo zestawia PeerJS. Zapis świata leży na telefonie, nie w chmurze. Żeby zapisy same się złączyły, oboje musicie być w świecie choć przez chwilę. Jeśli tak się nie zdarzy, z pauzy wyślijcie plik (**Wyślij świat** / **Wczytaj świat**). Link kopiuje się tylko przy małym ogrodzie; większy trzeba wysłać plikiem. Dwie karty w tej samej przeglądarce to jeden telefon. Krótka gra bez trwałego świata zostaje pod **Gra na chwilę**.
 
 ## Lokalnie
 

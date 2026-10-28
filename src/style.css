@@ -169,6 +169,9 @@ html, body {
   background: linear-gradient(#fff, #ffe7c2);
   box-shadow: 0 5px 0 #e2c48a;
 }
+.btn.world { text-align: left; }
+.btn.world b { display: block; }
+.btn.world span { display: block; font-weight: 500; color: var(--muted); font-size: 13px; }
 .btn.soft {
   color: var(--ink);
   background: linear-gradient(#fff, #e7f8ea);

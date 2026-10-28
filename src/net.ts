@@ -2,13 +2,6 @@ import Peer, { type DataConnection } from 'peerjs';
 
 export type NetMsg = Record<string, unknown> & { t: string };
 
-const ICE = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
-
 export function peerIdFor(code: string): string {
   return `piotrogrod-${code.toUpperCase()}`;
 }
@@ -23,6 +16,8 @@ export class Net {
   onConnected: () => void = () => {};
   onDisconnected: () => void = () => {};
   onError: (type: string, message: string) => void = () => {};
+  /** Signaling socket died after the peer id was open. */
+  onSignalLost: () => void = () => {};
   /** Host: decide whether an incoming hello may take the open seat. */
   admit: (msg: NetMsg) => boolean = () => true;
   private queue: NetMsg[] = [];
@@ -37,26 +32,37 @@ export class Net {
     this.queue = [];
   }
 
-  host(code: string): Promise<void> {
+  host(code: string, peerId?: string): Promise<void> {
     this.destroy();
     this.destroyed = false;
     this.isHost = true;
     this.code = code.toUpperCase();
     return new Promise((resolve, reject) => {
-      const peer = new Peer(peerIdFor(this.code), { debug: 0, config: ICE });
+      const peer = new Peer(peerId || peerIdFor(this.code), { debug: 0 });
       this.peer = peer;
       let settled = false;
+      const timer = window.setTimeout(() => {
+        if (settled || this.destroyed) return;
+        settled = true;
+        reject(new Error('timeout'));
+        try { peer.destroy(); } catch { /* ignore */ }
+      }, 10000);
       peer.on('open', () => {
         if (this.destroyed) return;
+        window.clearTimeout(timer);
         settled = true;
         resolve();
         this.onReady();
       });
       peer.on('error', (err: { type?: string; message?: string }) => {
+        if (this.destroyed) return;
         const type = err.type ?? 'error';
+        window.clearTimeout(timer);
         if (!settled) {
           settled = true;
           reject(new Error(type));
+        } else if (type === 'network' || type === 'socket-error' || type === 'socket-closed' || type === 'disconnected' || type === 'server-error' || type === 'unavailable-id') {
+          this.onSignalLost();
         }
         this.onError(type, err.message ?? type);
       });
@@ -67,33 +73,36 @@ export class Net {
     });
   }
 
-  join(code: string): Promise<void> {
+  join(code: string, peerId?: string, timeoutMs = 9000): Promise<void> {
     this.destroy();
     this.destroyed = false;
     this.isHost = false;
     this.code = code.toUpperCase();
     return new Promise((resolve, reject) => {
-      const peer = new Peer({ debug: 0, config: ICE });
+      const peer = new Peer({ debug: 0 });
       this.peer = peer;
       let settled = false;
+      let timer = 0;
       const fail = (type: string) => {
         if (settled) return;
         settled = true;
+        window.clearTimeout(timer);
         reject(new Error(type));
       };
+      timer = window.setTimeout(() => fail('timeout'), timeoutMs);
       peer.on('open', () => {
-        if (this.destroyed) return;
-        const conn = peer.connect(peerIdFor(this.code), { reliable: true });
+        if (this.destroyed || settled) return;
+        const conn = peer.connect(peerId || peerIdFor(this.code), { reliable: true });
         this.attach(conn);
         conn.on('open', () => {
-          if (!settled) {
-            settled = true;
-            resolve();
-          }
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          resolve();
         });
-        window.setTimeout(() => fail('peer-unavailable'), 9000);
       });
       peer.on('error', (err: { type?: string; message?: string }) => {
+        if (this.destroyed) return;
         const type = err.type ?? 'error';
         fail(type);
         this.onError(type, err.message ?? type);
