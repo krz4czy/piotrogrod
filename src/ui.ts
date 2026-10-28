@@ -74,6 +74,7 @@ export class GameUI {
   readonly joy: HTMLElement;
   readonly file: HTMLInputElement;
   onGo: (name: string, el: HTMLElement) => void = () => {};
+  onTap: () => void = () => {};
   onSetting: (key: string, value: string | number | boolean) => void = () => {};
   onFile: (file: File) => void = () => {};
   private dockSig = '';
@@ -111,6 +112,7 @@ export class GameUI {
     this.root.addEventListener('click', (ev) => {
       const el = (ev.target as HTMLElement).closest<HTMLElement>('[data-go]');
       if (!el || el.hasAttribute('disabled')) return;
+      this.onTap();
       const name = el.dataset.go ?? '';
       if (name === 'confirm-yes') {
         const fn = this.confirmYes;
@@ -294,6 +296,7 @@ export class GameUI {
       ['export', t('pause.export')],
       ['import', t('pause.import')],
       ['help', t('pause.help')],
+      ['credits', t('menu.credits')],
       ['menu-exit', t('pause.menu')],
     ];
     this.fillSheet(`<h2>${esc(t('pause.title'))}</h2>` + items.map(([id, label]) =>
@@ -312,6 +315,7 @@ export class GameUI {
       ).join('')}</div>`;
     this.fillSheet(`
       <h2>${esc(t('settings.title'))}</h2>
+      <label class="check"><input type="checkbox" data-set="musicOn" ${s.musicOn ? 'checked' : ''} />${esc(t('settings.musicOn'))}</label>
       <label class="slide">${esc(t('settings.music'))}<input type="range" min="0" max="1" step="0.01" data-set="music" value="${s.music}" /></label>
       <label class="slide">${esc(t('settings.sfx'))}<input type="range" min="0" max="1" step="0.01" data-set="sfx" value="${s.sfx}" /></label>
       <label class="check"><input type="checkbox" data-set="vibration" ${s.vibration ? 'checked' : ''} />${esc(t('settings.vib'))}</label>

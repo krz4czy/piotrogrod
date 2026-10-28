@@ -60,7 +60,8 @@ const pl: Record<string, string> = {
   'pause.leaveAsk': 'Wyjść do menu? Zapis zostaje na tym telefonie.',
 
   'settings.title': 'Ustawienia',
-  'settings.music': 'Muzyka',
+  'settings.musicOn': 'Włącz muzykę',
+  'settings.music': 'Głośność muzyki',
   'settings.sfx': 'Efekty',
   'settings.vib': 'Wibracje',
   'settings.gfx': 'Jakość grafiki',
@@ -81,7 +82,7 @@ const pl: Record<string, string> = {
 
   'credits.title': 'Autorzy',
   'credits.body':
-    'Piotrogród to ogród dla dwojga. Jedno z was jest Ogrodnikiem, drugie Zielarką.\n\nPostacie narysowane dla tej gry.\nDrzewa, krzewy, kwiaty, płoty, kamienie i plony: Nature Kit, Kenney (kenney.nl), CC0.\nIkony interfejsu narysowane dla tej gry.',
+    'Autor: Patryk Majchrzak\n\nPiotrogród to ogród dla dwojga. Jedno z was jest Ogrodnikiem, drugie Zielarką.\n\nPostacie narysowane dla tej gry.\nDrzewa, krzewy, kwiaty, płoty, kamienie i plony: Nature Kit, Kenney (kenney.nl), CC0.\nDźwięki: Kenney (kenney.nl), CC0 — Interface Sounds, Impact Sounds, RPG Audio, UI Audio.\nPlusk wody: rubberduck, OpenGameArt, CC0.\nMuzyka: „Apple Cider”, Zane Little, CC0.\nIkony interfejsu narysowane dla tej gry.',
   'credits.controls': 'Sterowanie',
   'credits.controlsBody':
     'Joystick pojawia się pod kciukiem po lewej (stronę zmienisz w ustawieniach). Przyciski po przeciwnej stronie szarzeją, gdy czynności nie da się teraz wykonać — stuknij, a gra powie dlaczego.\n\nSerduszko puszcza emotkę nad postacią. Przy ławce można usiąść we dwoje.',

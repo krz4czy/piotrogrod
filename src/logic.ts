@@ -188,6 +188,10 @@ function say(s: GameState, role: Role | 'all', key: string, vars?: Record<string
   pushNotice(s, role, t(key, vars), sfx);
 }
 
+function sfxOnly(s: GameState, role: Role | 'all', name: string): void {
+  pushNotice(s, role, '', name);
+}
+
 function pushNotice(s: GameState, role: Role | 'all', msg: string, sfx?: string): void {
   s.noticeSeq += 1;
   s.notices.push({ id: s.noticeSeq, role, msg, sfx, until: Date.now() + 3200 });
@@ -584,7 +588,7 @@ function grantXp(s: GameState, role: Role, amount: number, _now: number): void {
     ch.xp -= xpNeed(ch.level);
     ch.level += 1;
     ch.skillPoints += 1;
-    say(s, 'all', 'toast.level', { name: t('role.' + role), n: ch.level }, 'quest');
+    say(s, 'all', 'toast.level', { name: t('role.' + role), n: ch.level }, 'level');
     fx(s, ch.map, ch.x, ch.z, 'level', t('hud.lvl', { n: ch.level }), '#ffd23a', 1200);
   }
 }
@@ -779,7 +783,7 @@ function actSow(s: GameState, role: Role, ctx: Ctx, a: ActionMsg, now: number): 
   s.plants.push(plant);
   onEvent(s, { type: 'plant', n: 1 });
   grantXp(s, role, 3, now);
-  say(s, role, gkey(role, 'toast.sow'), { name: sp.name }, 'plant');
+  say(s, role, gkey(role, 'toast.sow'), { name: sp.name }, 'sow');
   s.characters[role].cd.swing = now + 280;
 }
 
@@ -847,7 +851,7 @@ function actPrune(s: GameState, role: Role, ctx: Ctx, now: number): void {
   if (!addItem(s.characters[role], 'kompost', 1)) say(s, role, 'toast.full_inv');
   resume(s, p, now);
   grantXp(s, role, 3, now);
-  say(s, role, 'toast.prune_m', undefined, 'dig');
+  say(s, role, 'toast.prune_m', undefined, 'prune');
   s.characters[role].cd.swing = now + 280;
 }
 
@@ -867,7 +871,7 @@ function actFert(s: GameState, role: Role, ctx: Ctx, now: number): void {
   if (p.readyAt && p.readyAt > now) p.readyAt = now + (p.readyAt - now) * 0.7;
   resume(s, p, now);
   grantXp(s, role, 3, now);
-  say(s, role, 'toast.fert_f', undefined, 'magic');
+  say(s, role, 'toast.fert_f', undefined, 'fert');
 }
 
 function actHealPlant(s: GameState, role: Role, ctx: Ctx, now: number): void {
@@ -879,7 +883,7 @@ function actHealPlant(s: GameState, role: Role, ctx: Ctx, now: number): void {
   p.needsHeal = false;
   resume(s, p, now);
   grantXp(s, role, 3, now);
-  say(s, role, 'toast.healplant_f', undefined, 'magic');
+  say(s, role, 'toast.healplant_f', undefined, 'heal');
   const pos = tileCenter(MAPS.ogrod, p.c, p.r);
   fx(s, 'ogrod', pos.x, pos.z, 'spark', undefined, '#9dffb0');
 }
@@ -901,7 +905,7 @@ function actGather(s: GameState, role: Role, ctx: Ctx, now: number): void {
     s.plants = s.plants.filter((x) => x.id !== p.id);
     onEvent(s, { type: 'harvest', n: 1, hybrid: sp.hybrid, greenhouse: meta?.includes('gh') ?? false });
     grantXp(s, role, 6, now);
-    say(s, role, 'toast.harvest_m', { name: itemName(cropId(p.species), meta) }, 'plant');
+    say(s, role, 'toast.harvest_m', { name: itemName(cropId(p.species), meta) }, 'harvest');
     return;
   }
   const node = ctx.node;
@@ -918,7 +922,7 @@ function actGather(s: GameState, role: Role, ctx: Ctx, now: number): void {
   if (node.left <= 0) node.respawn = now + 40000;
   addItem(s.characters[role], id, 1);
   grantXp(s, role, 4, now);
-  say(s, role, 'toast.gather_f', { name: itemName(id) }, 'plant');
+  say(s, role, 'toast.gather_f', { name: itemName(id) }, 'pickup');
 }
 
 function cropMeta(s: GameState, p: Plant): string | undefined {
@@ -949,7 +953,7 @@ function actCross(s: GameState, role: Role, now: number): void {
   }
   onEvent(s, { type: 'cross', n: 1 });
   grantXp(s, role, 10, now);
-  say(s, role, 'toast.cross_f', { name: sp.name }, 'magic');
+  say(s, role, 'toast.cross_f', { name: sp.name }, 'cross');
 }
 
 function crossPair(s: GameState, role: Role): [Plant, Plant] | null {
@@ -988,7 +992,7 @@ function actChase(s: GameState, role: Role, now: number): void {
     grantXp(s, role, MOBS[m.kind]?.xp ?? 5, now);
     fx(s, m.map, m.x, m.z, 'dust');
   }
-  say(s, role, 'toast.chase_m', undefined, 'hit');
+  say(s, role, 'toast.chase_m', undefined, 'death');
   s.characters[role].cd.swing = now + 280;
 }
 
@@ -1123,6 +1127,7 @@ function strike(s: GameState, role: Role, now: number, radius: number, minDot: n
   const ch = s.characters[role];
   const st = computeStats(s, role);
   const foes = foesInCone(s, role, radius, minDot);
+  let struck = false;
   for (const m of foes) {
     let dmg = Math.max(1, Math.round(st.attack * mul));
     if (tag === 'pylek' && (m.kind === 'osa' || m.kind === 'pszczola')) dmg += 10;
@@ -1133,6 +1138,8 @@ function strike(s: GameState, role: Role, now: number, radius: number, minDot: n
     fx(s, m.map, m.x, m.z + 0.4, 'dmg', String(dmg), '#fff4d0', 600);
     if (m.hp <= 0) killMob(s, m, role, now);
     else {
+      if (!struck) sfxOnly(s, role, 'hit');
+      struck = true;
       const dx = m.x - ch.x;
       const dz = m.z - ch.z;
       const d = Math.hypot(dx, dz) || 1;
@@ -1164,6 +1171,7 @@ function killMob(s: GameState, m: Mob, role: Role, now: number): void {
     }
   }
   fx(s, m.map, m.x, m.z, 'dust');
+  sfxOnly(s, role, 'death');
 }
 
 function actHealHero(s: GameState, role: Role, now: number): void {
@@ -1180,14 +1188,14 @@ function actHealHero(s: GameState, role: Role, now: number): void {
     doRevive(s, otherRole(role), 0.6, now);
     onEvent(s, { type: 'revive', n: 1 });
     grantXp(s, role, 8, now);
-    say(s, role, gkey(role, 'toast.revive'), undefined, 'magic');
+    say(s, role, gkey(role, 'toast.revive'), undefined, 'heal');
   } else if (near && partner.hp < stP.maxHp) {
     partner.hp = Math.min(stP.maxHp, partner.hp + 36);
     fx(s, partner.map, partner.x, partner.z, 'spark', '+36', '#9dffb0');
   }
   const st = computeStats(s, role);
   ch.hp = Math.min(st.maxHp, ch.hp + 18);
-  say(s, role, 'toast.use', { name: t('skill.zi_uzdrow.name') }, 'magic');
+  say(s, role, 'toast.use', { name: t('skill.zi_uzdrow.name') }, 'heal');
   fx(s, ch.map, ch.x, ch.z, 'spark', undefined, '#b8ffd0');
 }
 
@@ -1201,7 +1209,7 @@ function actRevive(s: GameState, role: Role, now: number): void {
   doRevive(s, otherRole(role), 0.48, now);
   onEvent(s, { type: 'revive', n: 1 });
   grantXp(s, role, 8, now);
-  say(s, role, gkey(role, 'toast.revive'), undefined, 'magic');
+  say(s, role, gkey(role, 'toast.revive'), undefined, 'heal');
 }
 
 function doRevive(s: GameState, role: Role, frac: number, now: number): void {
@@ -1212,7 +1220,7 @@ function doRevive(s: GameState, role: Role, frac: number, now: number): void {
   ch.invulnUntil = now + 1500;
   ch.posLockUntil = now + 300;
   ch.anim = 'idle';
-  say(s, 'all', 'toast.revived', { name: t('role.' + role) }, 'ok');
+  say(s, 'all', 'toast.revived', { name: t('role.' + role) }, 'heal');
   fx(s, ch.map, ch.x, ch.z, 'spark', undefined, '#fff1a8', 900);
 }
 
@@ -1247,7 +1255,7 @@ function actEggs(s: GameState, role: Role, ctx: Ctx, _now: number): void {
     moved += 1;
   }
   if (!moved) say(s, role, 'toast.full_inv', undefined, 'bad');
-  else say(s, role, 'toast.egg', { n: moved }, 'ok');
+  else say(s, role, 'toast.egg', { n: moved }, 'pickup');
 }
 
 function actSit(s: GameState, role: Role, now: number): void {
@@ -1322,7 +1330,7 @@ function actUse(s: GameState, role: Role, id: string, now: number): void {
     ch.buffDef = 3;
     ch.buffDefUntil = now + 8000;
   }
-  say(s, role, 'toast.use', { name: it.name }, 'ok');
+  say(s, role, 'toast.use', { name: it.name }, 'pickup');
   fx(s, ch.map, ch.x, ch.z, 'spark', '+' + it.heal, '#c9ffd4');
 }
 
@@ -1427,7 +1435,7 @@ function actSkill(s: GameState, role: Role, id: string): void {
   }
   ch.skillPoints -= 1;
   ch.skills.push(id);
-  say(s, 'all', 'toast.skill', { name: sk.name }, 'quest');
+  say(s, 'all', 'toast.skill', { name: sk.name }, 'magic');
   if (sk.active) say(s, role, 'toast.skill_active', { name: t('action.' + sk.active) });
 }
 
@@ -1537,7 +1545,7 @@ function actTurnin(s: GameState, role: Role, id: string, now: number): void {
     if (!s.unlocks.includes(u)) s.unlocks.push(u);
   }
   refreshQuests(s);
-  say(s, 'all', 'toast.quest_done', { name: def.title }, 'quest');
+  say(s, 'all', 'toast.quest_done', { name: def.title }, 'questdone');
 }
 
 function preferRoleFor(id: string, turner: Role): Role {
@@ -1649,12 +1657,15 @@ function hurt(s: GameState, role: Role, amount: number, now: number, source: str
   ch.invulnUntil = now + 680;
   ch.posLockUntil = now + 220;
   fx(s, ch.map, ch.x, ch.z + 0.8, 'dmg', String(dmg), '#ff5b6a', 650);
+  let noted = false;
   if (source === 'bee' && (ch.cd.beeNote ?? 0) < now) {
     ch.cd.beeNote = now + 2600;
     ch.slowUntil = now + 2200;
     say(s, role, 'toast.bees', undefined, 'hurt');
+    noted = true;
   } else if (source === 'lightning') {
     say(s, role, 'toast.lightning', undefined, 'hurt');
+    noted = true;
   } else if (source === 'mob') {
     ch.slowUntil = Math.max(ch.slowUntil, now + (amount > 10 ? 500 : 0));
   }
@@ -1665,7 +1676,7 @@ function hurt(s: GameState, role: Role, amount: number, now: number, source: str
     ch.sitting = false;
     ch.anim = 'down';
     say(s, 'all', 'toast.down', { name: t('role.' + role) }, 'hurt');
-  }
+  } else if (!noted) sfxOnly(s, role, 'hurt');
 }
 
 export function simulate(s: GameState, now: number, dt: number): void {

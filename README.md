@@ -1,5 +1,7 @@
 # Piotrogród
 
+Autor: Patryk Majchrzak
+
 Kooperacyjny ogród dla dwojga na telefon. Jedno z was jest Ogrodnikiem, drugie Zielarką. Rośliny rosną dopiero wtedy, gdy oboje o nie zadbacie. Gra działa w przeglądarce, w pionie, bez instalacji.
 
 **Graj:** https://krz4czy.github.io/piotrogrod/

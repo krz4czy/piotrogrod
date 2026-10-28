@@ -6,6 +6,8 @@ export type JoySize = 'mala' | 'srednia' | 'duza';
 
 export interface Settings {
   music: number;
+  /** When false the music slider is kept, but the loop stays silent. */
+  musicOn: boolean;
   sfx: number;
   vibration: boolean;
   quality: Quality;
@@ -18,6 +20,7 @@ const KEY = 'piotrogrod-settings';
 
 export const DEFAULT_SETTINGS: Settings = {
   music: 0.35,
+  musicOn: true,
   sfx: 0.75,
   vibration: true,
   quality: 'srednia',

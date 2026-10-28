@@ -140,6 +140,7 @@ class App {
   constructor() {
     this.settings = loadSettings();
     this.audio.setMusic(this.settings.music);
+    this.audio.setMusicOn(this.settings.musicOn);
     this.audio.setSfx(this.settings.sfx);
     const app = document.querySelector<HTMLElement>('#app');
     if (!app) throw new Error('app');
@@ -155,6 +156,10 @@ class App {
     this.preview = createGame(Date.now());
     bindMarker(npcMarker);
     this.ui.onGo = (name, el) => this.onGo(name, el);
+    this.ui.onTap = () => {
+      this.audio.unlock();
+      this.audio.play('ui');
+    };
     this.ui.onSetting = (key, value) => this.onSetting(key, value);
     this.ui.onFile = (file) => void this.onFile(file);
     this.bindInput();
@@ -189,6 +194,10 @@ class App {
     const now = Date.now();
     const input = this.readInput();
     this.moving = Math.hypot(input.ix, input.iz) > 0.12;
+    if (this.phase === 'play' && this.moving && this.state) {
+      const walker = this.state.characters[this.role];
+      if (!walker.sitting && !walker.downed) this.audio.step();
+    }
     if (this.state && this.host && (this.phase === 'lobby' || this.phase === 'play')) {
       if (this.phase === 'play') movePlayer(this.state, this.role, input.ix, input.iz, dt, now);
       simulate(this.state, now, dt);
@@ -312,6 +321,9 @@ class App {
     if (key === 'music') {
       this.settings.music = Number(value);
       this.audio.setMusic(this.settings.music);
+    } else if (key === 'musicOn') {
+      this.settings.musicOn = Boolean(value);
+      this.audio.setMusicOn(this.settings.musicOn);
     } else if (key === 'sfx') {
       this.settings.sfx = Number(value);
       this.audio.setSfx(this.settings.sfx);
@@ -825,6 +837,7 @@ class App {
     this.lastHeard = Date.now();
     this.net.send({ t: 'welcome', state: this.state, role: this.guest.role, swapped: this.swapped });
     this.ui.toast(t('toast.connected'));
+    this.audio.play('join');
     if (this.phase === 'lobby') this.ui.showLobby(this.code, true);
     if (this.phase === 'play') {
       this.paintHud(Date.now());
@@ -841,6 +854,7 @@ class App {
     this.host = false;
     if (msg.swapped) this.ui.toast(t('toast.role_swap', { name: t('role.' + this.role) }));
     else this.ui.toast(t('toast.connected'));
+    this.audio.play('join');
     writeSession({ code: this.code, role: this.role, host: false, token: this.token, at: Date.now() });
     this.saveMaybe(Date.now(), true);
     this.enterPlay();
@@ -994,7 +1008,7 @@ class App {
       if (n.id <= this.noticeCursor) continue;
       this.noticeCursor = Math.max(this.noticeCursor, n.id);
       if (n.role !== 'all' && n.role !== this.role) continue;
-      this.ui.toast(n.msg);
+      if (n.msg) this.ui.toast(n.msg);
       if (n.sfx) this.audio.play(n.sfx);
       if (this.settings.vibration && (n.sfx === 'hurt' || n.sfx === 'hit')) navigator.vibrate?.(16);
     }
